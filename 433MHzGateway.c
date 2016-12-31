@@ -31,13 +31,13 @@ The message is parsed and put bak to the same payload structure as the one recei
 #endif
 #endif
 
-//RFM69  ----------------------------------
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -74,7 +74,7 @@ Stats theStats;
 #define BROKER_HOSTNAME "localhost"
 #define BROKER_PORT 1883
 
-#define MQTT_ROOT "433Switch"
+#define MQTT_ROOT "433Switch2"
 #define MQTT_CLIENT_ID "433Gateway"
 #define MQTT_RETRY 500
 #define MQTT_NETWORK_ID 123
@@ -173,7 +173,7 @@ int main(int argc, char* argv[]) {
 
 	// Mosquitto subscription ---------
 	char subsciptionMask[128];
-	sprintf(subsciptionMask, "%s/%03d/#", MQTT_ROOT, MQTT_NETWORK_ID);
+	sprintf(subsciptionMask, "%s/#", MQTT_ROOT);
 	LOG("Subscribe to Mosquitto topic: %s\n", subsciptionMask);
 	mosquitto_subscribe(m, NULL, subsciptionMask, 0);
 
@@ -419,32 +419,51 @@ static void on_connect(struct mosquitto *m, void *udata, int res) {
 }
 
 /* Handle a message that just arrived via one of the subscriptions. */
-static void on_message(struct mosquitto *m, void *udata,
-const struct mosquitto_message *msg) {
-	if (msg == NULL) { return; }
+static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_message *msg) {
+	if (msg == NULL) 
+		{ return; }
+
 	LOG("-- got message @ %s: (%d, QoS %d, %s) '%s'\n",
 		msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
 		msg->payload);
-		
+
 	if (strlen((const char *)msg->topic) < strlen(MQTT_ROOT) + 2 + 3 + 1) {return; }	// message is smaller than "433Switch/xxx/x" so likey invalid
 
 	Payload data;
-	unsigned char network;
+	uint32_t groupId;
+	uint32_t nodeId;
+//	char cmdStr[10];
 
 	// extract the target network and the target node from the topic
-	sscanf(msg->topic, "433Switch/%d/%d/%d", &network, &data.nodeID, &data.sensorID);
-	if (strncmp(msg->topic, MQTT_ROOT, strlen(MQTT_ROOT)) == 0 && network == MQTT_NETWORK_ID) {
-		// only process the messages to our network
-		//uint64_t data;
-		sscanf((const char *)msg->payload, "%lx", &data.var1_usl);//, &data.var2_float, &data.var3_float);
-                        
-                LOG("Received message for Node ID = %d Device ID = %d Data = 0x%lx\n",
-                                data.nodeID,
-                                data.sensorID,
-                                data.var1_usl);
+	sscanf(msg->topic, "433Switch2/%lx/%lx", &groupId, &nodeId);
+	LOG("GroupId 0x%x\tNodeId 0x%x\n", groupId, nodeId);
+
+	if (strncmp(msg->topic, MQTT_ROOT, strlen(MQTT_ROOT)) == 0) {
+		uint32_t cmd = groupId << 8 | nodeId;
+		int i = 0;
+		char cmdStr[10];
+
+		sscanf((const char *)msg->payload, "%9s", cmdStr);
+
+		while (cmdStr[i])
+		{
+			cmdStr[i] = tolower(cmdStr[i]);
+			i++;
+		}
+
+                if (strncmp(cmdStr, "on", 2) == 0)
+                {
+                        cmd |= 0x60;
+                }
+                if (strncmp(cmdStr, "off", 3) == 0)
+                {
+                        cmd |= 0x70;
+                }
+
+		LOG("Send code 0x%x\n", cmd);
 
 		theStats.messageSent++;
-		transmitCode(data.var1_usl, 4);
+		transmitCode(cmd, 4);
 	}
 }
 
@@ -471,12 +490,12 @@ static bool set_callbacks(struct mosquitto *m) {
 void sendPulse(uint8_t pulseLen){
     /* Transmit a HIGH signal - the duration of transmission will be determined 
        by the highLength and timeDelay variables */
-    digitalWrite(TX_PIN, HIGH);     
-    usleep(120); 
-         
+    digitalWrite(TX_PIN, HIGH);
+    usleep(120);
+
     /* Transmit a LOW signal - the duration of transmission will be determined 
        by the lowLength and timeDelay variables */
-    digitalWrite(TX_PIN, LOW);     
+    digitalWrite(TX_PIN, LOW);
     usleep(pulseLen*120);
 }
 
