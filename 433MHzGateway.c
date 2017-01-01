@@ -74,7 +74,7 @@ Stats theStats;
 #define BROKER_HOSTNAME "localhost"
 #define BROKER_PORT 1883
 
-#define MQTT_ROOT "433Switch2"
+#define MQTT_ROOT "433Switch"
 #define MQTT_CLIENT_ID "433Gateway"
 #define MQTT_RETRY 500
 #define MQTT_NETWORK_ID 123
@@ -369,7 +369,7 @@ static void MQTTSendInt(struct mosquitto * _client, int node, int sensor, int va
 	char buff_message[7];
 
 	sprintf(buff_topic, "%s/%02d/%01d/%01d", MQTT_ROOT, node, sensor, var);
-	sprintf(buff_message, "%04d%", val);
+	sprintf(buff_message, "%04d", val);
 	LOG("%s %s\r\n", buff_topic, buff_message);
 	mosquitto_publish(_client, 0, &buff_topic[0], strlen(buff_message), buff_message, 0, false);
 }
@@ -392,7 +392,6 @@ static void MQTTSendFloat(struct mosquitto* _client, int node, int sensor, int v
 	snprintf(buff_message, 12, "%f", val);
 	LOG("%s %s\r\n", buff_topic, buff_message);
 	mosquitto_publish(_client, 0, buff_topic, strlen(buff_message), buff_message, 0, false);
-
 	}
 
 // Handing of Mosquitto messages
@@ -432,14 +431,13 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 	Payload data;
 	uint32_t groupId;
 	uint32_t nodeId;
-//	char cmdStr[10];
 
 	// extract the target network and the target node from the topic
-	sscanf(msg->topic, "433Switch2/%lx/%lx", &groupId, &nodeId);
+	sscanf(msg->topic, "433Switch/%lx/%lx", &groupId, &nodeId);
 	LOG("GroupId 0x%x\tNodeId 0x%x\n", groupId, nodeId);
 
 	if (strncmp(msg->topic, MQTT_ROOT, strlen(MQTT_ROOT)) == 0) {
-		uint32_t cmd = groupId << 8 | nodeId;
+		uint32_t cmd = groupId | nodeId;
 		int i = 0;
 		char cmdStr[10];
 
@@ -453,12 +451,20 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 
                 if (strncmp(cmdStr, "on", 2) == 0)
                 {
-                        cmd |= 0x60;
+                        cmd |= 0x20; //0x60;
                 }
                 if (strncmp(cmdStr, "off", 3) == 0)
                 {
-                        cmd |= 0x70;
+                        cmd |= 0x30; //0x70;
                 }
+		if (strncmp(cmdStr, "group-on", 8) == 0)
+		{
+			cmd |= 0x00;
+		}
+		if (strncmp(cmdStr, "group-off", 9) == 0)
+		{
+			cmd |= 0x10;
+		}
 
 		LOG("Send code 0x%x\n", cmd);
 
