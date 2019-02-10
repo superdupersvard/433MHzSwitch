@@ -11,7 +11,7 @@ The message is parsed and put bak to the same payload structure as the one recei
 */
 
 //general --------------------------------
-#define SERIAL_BAUD   115200
+//#define SERIAL_BAUD   115200
 #ifdef DAEMON
 #define LOG(...) do { syslog(LOG_INFO, __VA_ARGS__); } while (0)
 #define LOG_E(...) do { syslog(LOG_ERR, __VA_ARGS__); } while (0)
@@ -49,21 +49,6 @@ The message is parsed and put bak to the same payload structure as the one recei
 #include <errno.h>
 #include <wiringPi.h>
 
-
-typedef struct {
-	unsigned long messageWatchdog;
-	unsigned long messageSent;
-	unsigned long messageReceived;
-	unsigned long ackRequested;
-
-	unsigned long ackReceived;
-	unsigned long ackMissed;
-
-	unsigned long ackCount;
-}
-Stats;
-Stats theStats;
-
 // Mosquitto---------------
 #include <mosquitto.h>
 
@@ -76,12 +61,8 @@ Stats theStats;
 
 #define MQTT_ROOT "433Switch"
 #define MQTT_CLIENT_ID "433Gateway"
-#define MQTT_RETRY 500
-#define MQTT_NETWORK_ID 123
 
 #define TX_PIN	0
-
-int sendMQTT = 0;
 
 typedef struct {
 	short           nodeID;
@@ -89,7 +70,6 @@ typedef struct {
 	uint32_t        var1_usl;
 }
 Payload;
-Payload theData;
 
 /*
 typedef struct {
@@ -110,10 +90,6 @@ static bool set_callbacks(struct mosquitto *m);
 static bool connect(struct mosquitto *m);
 static int run_loop(struct mosquitto *m);
 
-static void MQTTSendInt(struct mosquitto * _client, int node, int sensor, int var, int val);
-static void MQTTSendULong(struct mosquitto* _client, int node, int sensor, int var, unsigned long val);
-static void MQTTSendFloat(struct mosquitto* _client, int node, int sensor, int var, float val);
-
 void transmitCode(uint32_t code, uint8_t rep);
 
 static void uso(void) {
@@ -122,7 +98,8 @@ static void uso(void) {
 }
 
 int main(int argc, char* argv[]) {
-	if (argc != 1) uso();
+	if (argc != 1) 
+		uso();
 
 #ifdef DAEMON
 	//Adapted from http://www.netzmafia.de/skripten/unix/linux-daemon-howto.html
@@ -191,105 +168,7 @@ static int run_loop(struct mosquitto *m) {
 	long lastMess; 
 	for (;;) {
 		res = mosquitto_loop(m, 10, 1);
-
-		// No messages have been received withing MESSAGE_WATCHDOG interval
-/*		if (millis() > lastMess + theConfig.messageWatchdogDelay) {
-			LOG("=== Message WatchDog ===\n");
-			theStats.messageWatchdog++;
-			// reset watchdog
-			lastMess = millis();
-		}
-
-		if (rfm69->receiveDone()) {
-			// record last message received time - to compute radio watchdog
-			lastMess = millis();
-			theStats.messageReceived++;
-
-			// store the received data localy, so they can be overwited
-			// This will allow to send ACK immediately after
-			uint8_t data[RF69_MAX_DATA_LEN]; // recv/xmit buf, including header & crc bytes
-			uint8_t dataLength = rfm69->DATALEN;
-			memcpy(data, (void *)rfm69->DATA, dataLength);
-			uint8_t theNodeID = rfm69->SENDERID;
-			uint8_t targetID = rfm69->TARGETID; // should match _address
-			uint8_t PAYLOADLEN = rfm69->PAYLOADLEN;
-			uint8_t ACK_REQUESTED = rfm69->ACK_REQUESTED;
-			uint8_t ACK_RECEIVED = rfm69->ACK_RECEIVED; // should be polled immediately after sending a packet with ACK request
-			int16_t RSSI = rfm69->RSSI; // most accurate RSSI during reception (closest to the reception)
-
-			if (ACK_REQUESTED  && targetID == theConfig.nodeId) {
-				// When a node requests an ACK, respond to the ACK
-				// but only if the Node ID is correct
-				theStats.ackRequested++;
-				rfm69->sendACK();
-
-				if (theStats.ackCount++%3==0) {
-					// and also send a packet requesting an ACK (every 3rd one only)
-					// This way both TX/RX NODE functions are tested on 1 end at the GATEWAY
-
-					usleep(3000);  //need this when sending right after reception .. ?
-					theStats.messageSent++;
-					if (rfm69->sendWithRetry(theNodeID, "ACK TEST", 8)) { // 3 retry, over 200ms delay each
-						theStats.ackReceived++;
-						LOG("Pinging node %d - ACK - ok!\r\n", theNodeID);
-					}
-					else {
-						theStats.ackMissed++;
-						LOG("Pinging node %d - ACK - nothing!\r\n", theNodeID);
-					}
-				}
-			}//end if radio.ACK_REQESTED
-
-			LOG("[%d] to [%d] ", theNodeID, targetID);
-
-			if (dataLength != sizeof(Payload)) {
-				LOG("Invalid payload received, not matching Payload struct! %d - %d\r\n", dataLength, sizeof(Payload));
-				hexDump(NULL, data, dataLength, 16);		
-			} else {
-				theData = *(Payload*)data; //assume radio.DATA actually contains our struct and not something else
-
-				//save it for mosquitto:
-				sensorNode.nodeID = theData.nodeID;
-				sensorNode.sensorID = theData.sensorID;
-				sensorNode.var1_usl = theData.var1_usl;
-				sensorNode.var2_float = theData.var2_float;
-				sensorNode.var3_float = theData.var3_float;
-				sensorNode.var4_int = RSSI;
-
-				LOG("Received Node ID = %d Device ID = %d Time = %d  RSSI = %d var2 = %f var3 = %f\n",
-					sensorNode.nodeID,
-					sensorNode.sensorID,
-					sensorNode.var1_usl,
-					sensorNode.var4_int,
-					sensorNode.var2_float,
-					sensorNode.var3_float
-				);
-				if (sensorNode.nodeID == theNodeID) {
-					sendMQTT = 1;
-                                        LOG("Send to MQTT\r\n");
-				} else {
-					hexDump(NULL, data, dataLength, 16);
-					LOG("Don't send to MQTT\r\n");
-				}
-			}
-		} //end if radio.receive
-
-		if (sendMQTT == 1) {
-			//send var1_usl
-			MQTTSendULong(m, sensorNode.nodeID, sensorNode.sensorID, 1, sensorNode.var1_usl);
-
-			//send var2_float
-			MQTTSendFloat(m, sensorNode.nodeID, sensorNode.sensorID, 2, sensorNode.var2_float);
-
-			//send var3_float
-			MQTTSendFloat(m, sensorNode.nodeID, sensorNode.sensorID, 3, sensorNode.var3_float);
-
-			//send var4_int, RSSI
-			MQTTSendInt(m, sensorNode.nodeID, sensorNode.sensorID, 4, sensorNode.var4_int);
-
-			sendMQTT = 0;
-		}//end if sendMQTT
-*/	}
+	}
 
 	mosquitto_destroy(m);
 	(void)mosquitto_lib_cleanup();
@@ -363,43 +242,13 @@ static void hexDump (char *desc, void *addr, int len, int bloc) {
 		}
 	while (line * bloc < len);
 }
-
-static void MQTTSendInt(struct mosquitto * _client, int node, int sensor, int var, int val) {
-	char buff_topic[sizeof(MQTT_ROOT) + 9];
-	char buff_message[7];
-
-	sprintf(buff_topic, "%s/%02d/%01d/%01d", MQTT_ROOT, node, sensor, var);
-	sprintf(buff_message, "%04d", val);
-	LOG("%s %s\r\n", buff_topic, buff_message);
-	mosquitto_publish(_client, 0, &buff_topic[0], strlen(buff_message), buff_message, 0, false);
-}
-
-static void MQTTSendULong(struct mosquitto* _client, int node, int sensor, int var, unsigned long val) {
-	char buff_topic[sizeof(MQTT_ROOT) + 9];
-	char buff_message[12];
-
-	sprintf(buff_topic, "%s/%02d/%01d/%01d", MQTT_ROOT, node, sensor, var);
-	sprintf(buff_message, "%u", val);
-	LOG("%s %s\r\n", buff_topic, buff_message);
-	mosquitto_publish(_client, 0, &buff_topic[0], strlen(buff_message), buff_message, 0, false);
-	}
-
-static void MQTTSendFloat(struct mosquitto* _client, int node, int sensor, int var, float val) {
-	char buff_topic[sizeof(MQTT_ROOT) + 9];
-	char buff_message[12];
-
-	sprintf(buff_topic, "%s/%02d/%01d/%01d", MQTT_ROOT, node, sensor, var);
-	snprintf(buff_message, 12, "%f", val);
-	LOG("%s %s\r\n", buff_topic, buff_message);
-	mosquitto_publish(_client, 0, buff_topic, strlen(buff_message), buff_message, 0, false);
-	}
-
+/*
 // Handing of Mosquitto messages
 void callback(char* topic, unsigned char* payload, unsigned int length) {
 	// handle message arrived
 	LOG("Mosquitto Callback\n");
 }
-
+*/
 
 /* Connect to the network. */
 static bool connect(struct mosquitto *m) {
@@ -449,14 +298,14 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 			i++;
 		}
 
-                if (strncmp(cmdStr, "on", 2) == 0)
-                {
-                        cmd |= 0x20;
-                }
-                if (strncmp(cmdStr, "off", 3) == 0)
-                {
-                        cmd |= 0x30;
-                }
+        if (strncmp(cmdStr, "on", 2) == 0)
+        {
+                cmd |= 0x20;
+        }
+        if (strncmp(cmdStr, "off", 3) == 0)
+        {
+                cmd |= 0x30;
+        }
 		if (strncmp(cmdStr, "group-on", 8) == 0)
 		{
 			cmd |= 0x00;
@@ -468,7 +317,6 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 
 		LOG("Send code 0x%x\n", cmd);
 
-		theStats.messageSent++;
 		transmitCode(cmd, 4);
 	}
 }
@@ -522,7 +370,7 @@ void sendBit(int bit)
 void transmitCode(uint32_t code, uint8_t rep){
   uint32_t mask = 0x80000000UL;
   
-  //The signal is transmitted 4 times in succession - this may vary with your remote.       
+  //The signal is transmitted 8 times in succession - this may vary with your remote.       
   for(int j = 0; j<8; j++){
     for (int i = 0; i < 32; i++){
       int bit = code & mask;
