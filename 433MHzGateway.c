@@ -451,11 +451,11 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 
                 if (strncmp(cmdStr, "on", 2) == 0)
                 {
-                        cmd |= 0x20; //0x60;
+                        cmd |= 0x20;
                 }
                 if (strncmp(cmdStr, "off", 3) == 0)
                 {
-                        cmd |= 0x30; //0x70;
+                        cmd |= 0x30;
                 }
 		if (strncmp(cmdStr, "group-on", 8) == 0)
 		{
@@ -523,7 +523,7 @@ void transmitCode(uint32_t code, uint8_t rep){
   uint32_t mask = 0x80000000UL;
   
   //The signal is transmitted 4 times in succession - this may vary with your remote.       
-  for(int j = 0; j<4; j++){
+  for(int j = 0; j<8; j++){
     for (int i = 0; i < 32; i++){
       int bit = code & mask;
       sendBit(bit);
