@@ -17,19 +17,32 @@ The message is parsed and put bak to the same payload structure as the one recei
 #define LOG_E(...) do { syslog(LOG_ERR, __VA_ARGS__); } while (0)
 #else
 #ifdef DEBUG
-#define DEBUG1(expression)  fprintf(stderr, expression)
-#define DEBUG2(expression, arg)  fprintf(stderr, expression, arg)
-#define DEBUGLN1(expression)  
 #define LOG(...) do { printf(__VA_ARGS__); } while (0)
 #define LOG_E(...) do { printf(__VA_ARGS__); } while (0)
 #else
-#define DEBUG1(expression)
-#define DEBUG2(expression, arg)
-#define DEBUGLN1(expression)
 #define LOG(...)
 #define LOG_E(...)
 #endif
 #endif
+
+#define USE_TELLDUS
+
+#ifdef USE_TELLDUS
+#define CMD_ON 			0x20
+#define CMD_OFF 		0x30
+#define CMD_GROUP_ON 	0x00
+#define CMD_GROUP_OFF	0x10
+#define CMD_LEN			32
+#endif
+
+#ifdef USE_ERIKC
+#define CMD_ON 			0xc
+#define CMD_OFF 		0x3
+#define CMD_GROUP_ON 	0xc
+#define CMD_GROUP_OFF	0x3
+#define CMD_LEN			24
+#endif
+
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -242,13 +255,6 @@ static void hexDump (char *desc, void *addr, int len, int bloc) {
 		}
 	while (line * bloc < len);
 }
-/*
-// Handing of Mosquitto messages
-void callback(char* topic, unsigned char* payload, unsigned int length) {
-	// handle message arrived
-	LOG("Mosquitto Callback\n");
-}
-*/
 
 /* Connect to the network. */
 static bool connect(struct mosquitto *m) {
@@ -300,19 +306,19 @@ static void on_message(struct mosquitto *m, void *udata, const struct mosquitto_
 
         if (strncmp(cmdStr, "on", 2) == 0)
         {
-                cmd |= 0x20;
+            cmd |= CMD_ON;
         }
         if (strncmp(cmdStr, "off", 3) == 0)
         {
-                cmd |= 0x30;
+            cmd |= CMD_OFF;
         }
 		if (strncmp(cmdStr, "group-on", 8) == 0)
 		{
-			cmd |= 0x00;
+			cmd |= CMD_GROUP_ON;
 		}
 		if (strncmp(cmdStr, "group-off", 9) == 0)
 		{
-			cmd |= 0x10;
+			cmd |= CMD_GROUP_OFF;
 		}
 
 		LOG("Send code 0x%x\n", cmd);
@@ -341,32 +347,33 @@ static bool set_callbacks(struct mosquitto *m) {
 	return true;
 }
 
-void sendPulse(uint8_t pulseLen){
+void sendPulse(uint8_t highLength, uint8_t lowLength){
     /* Transmit a HIGH signal - the duration of transmission will be determined 
        by the highLength and timeDelay variables */
     digitalWrite(TX_PIN, HIGH);
-    usleep(120);
+    usleep(highLength*120);
 
     /* Transmit a LOW signal - the duration of transmission will be determined 
        by the lowLength and timeDelay variables */
     digitalWrite(TX_PIN, LOW);
-    usleep(pulseLen*120);
+    usleep(lowLength*120);
 }
 
+#ifdef USE_TELLDUS
 void sendBit(int bit)
 {
     if (bit)
     {
-        sendPulse(2);
-        sendPulse(10);
+        sendPulse(1, 2);
+        sendPulse(1, 10);
     }
     else
     {
-        sendPulse(10);
-        sendPulse(2);
+        sendPulse(1, 10);
+        sendPulse(1, 2);
     }
 }
-
+/*
 void transmitCode(uint32_t code, uint8_t rep){
   uint32_t mask = 0x80000000UL;
   
@@ -377,9 +384,40 @@ void transmitCode(uint32_t code, uint8_t rep){
       sendBit(bit);
       mask = mask >> 1;
     }
-    sendPulse(91);
-    sendPulse(23);
+    sendPulse(1, 91);
+    sendPulse(1, 23);
     mask = 0x80000000UL;
+  }
+}*/
+#endif
+
+#ifdef USE_ERIKC
+void sendBit(int bit)
+{
+    if (bit)
+    {
+        sendPulse(1, 4);
+    }
+    else
+    {
+        sendPulse(4, 1);
+    }
+}
+#endif
+void transmitCode(uint32_t code, uint8_t rep){
+  uint32_t mask = 0x1UL << (CMD_LEN -1); //0x80000000UL;
+
+  LOG("MASK = 0x%lx\n", mask);
+  
+  //The signal is transmitted 8 times in succession - this may vary with your remote.       
+  for(int j = 0; j<8; j++){
+    for (int i = 0; i < CMD_LEN; i++){
+      int bit = code & mask;
+      sendBit(bit);
+      mask = mask >> 1;
+    }
+    sendPulse(1, 47);
+    mask = 0x1UL << (CMD_LEN -1); //0x80000000UL;
   }
 }
 
