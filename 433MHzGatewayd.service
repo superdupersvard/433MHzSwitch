@@ -1,0 +1,14 @@
+[Unit]
+Description=Gateway for 433MHz radio from MQTT.
+After=network-online.target
+#StartLimitIntervalSec=0
+
+[Service]
+Type=forking
+Restart=always
+RestartSec=5
+User=root
+ExecStart=/usr/local/bin/433MHzGatewayd
+
+[Install]
+WantedBy=multi-user.target

@@ -1,15 +1,16 @@
 install : 433MHzGatewayd
 	cp 433MHzGatewayd /usr/local/bin
-	cp 433MHzGatewaydService /etc/init.d/433MHzGatewayd
-	chmod +x /etc/init.d/433MHzGatewayd
-	update-rc.d 433MHzGatewayd defaults
-	service 433MHzGatewayd start
-	
+	cp 433MHzGatewayd.service /usr/lib/systemd/system/433MHzGatewayd.service
+	systemctl daemon-reload
+	systemctl enable 433MHzGatewayd.service
+	systemctl start 433MHzGatewayd.service
+
 	
 uninstall:
-	service 433HzGatewayd stop
-	update-rc.d -f 433MHzGatewayd remove
-	rm /etc/init.d/433MHzGatewayd
+	systemctl stop 433MHzGatewayd.service
+	systemctl disable 433MHzGatewayd.service
+	rm /usr/lib/systemd/system/433MHzGatewayd.service
+	systemctl daemon-reload
 	rm /usr/local/bin/433MHzGatewayd
 
 433MHzGatewayd : 433MHzGateway.c 
